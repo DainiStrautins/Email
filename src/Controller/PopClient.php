@@ -33,6 +33,8 @@ class PopClient {
     private array $finalizedJsonStructureArray = [];
     const CRLF = "\r\n";
 
+    private string $processedEmailsJson = __DIR__ . '/../../config/processed_emails.json';
+
     /**
      * Pop3Client constructor.
      *
@@ -125,8 +127,7 @@ class PopClient {
      * @return void
      */
     private function loadProcessedEmails(): void {
-        $processedEmailsJsonPath = __DIR__ . '/../../config/processed_emails.json';
-        $processedEmailsJson = file_get_contents($processedEmailsJsonPath);
+        $processedEmailsJson = file_get_contents($this->processedEmailsJson);
         $this->processedEmails = json_decode($processedEmailsJson, true) ?: [];
     }
 
@@ -938,20 +939,8 @@ class PopClient {
         $this->processedEmails = array_merge($this->processedEmails, $newEmailData);
 
         $jsonEmailData = json_encode($this->processedEmails, JSON_PRETTY_PRINT);
-        print_r(file_put_contents(__DIR__. '/../../config/processed_emails.json', $jsonEmailData));
+        file_put_contents($this->processedEmailsJson, $jsonEmailData);
     }
-
-    /*function displayKeys($array, $parentKey = ''): void
-    {
-        foreach ($array as $key => $value) {
-            $currentKey = $parentKey . ($parentKey ? '.' : '') . $key;
-            echo $currentKey . "\n";
-            if (is_array($value)) {
-                echo "<br>";
-                $this->displayKeys($value, $currentKey); // Recursively call the function with the current key
-            }
-        }
-    }*/
 
 
     /**
@@ -1014,7 +1003,6 @@ class PopClient {
         // 13. Creates Json file structure that needs to be saved.
         $this->createJsonStructure();
 
-        print_r($this->globalEmails);
         // 14. Saves the file into processed_emails.json the created structure variable
         $this->saveIntoJson($this->finalizedJsonStructureArray);
     }
@@ -1054,14 +1042,13 @@ class PopClient {
     function getExcelFilesBase64(array $fileNames): array
     {
         $base64Contents = [];
-        print_r($fileNames);
         foreach ($fileNames as $requestedFileName) {
             $emailInfo = null; // Initialize an email info array
 
             // Search for the requested file name in processed emails and get the email info
             foreach ($this->processedEmails as $id => $emailData) {
                 if (isset($emailData['attachments'])) {
-                    foreach ($emailData['attachments'] as $hash => $attachmentInfo) {
+                    foreach ($emailData['attachments'] as $attachmentInfo) {
                         if ($attachmentInfo['original_file_name'] === $requestedFileName ||
                             $attachmentInfo['filename'] === $requestedFileName
                         ) {
@@ -1075,7 +1062,6 @@ class PopClient {
                     }
                 }
             }
-            print_r($emailInfo);
 
             if ($emailInfo) {
                 // Get the email ID and original file name
@@ -1117,7 +1103,7 @@ class PopClient {
      * This function updates the status of attachments in processed emails based on
      * specified filenames and new status.
      *
-     * @param array  $fullFilenames An array of full filenames (with extension and path).
+     * @param array  $fullFilenames An array of full filenames (with an extension and path).
      * @param string $newStatus     The new status to set for the attachments.
      *
      * @return void
@@ -1125,8 +1111,7 @@ class PopClient {
     public function updateAttachmentStatusByFilenames(array $fullFilenames, string $newStatus): void
     {
         // Load the JSON file that contains attachment information
-        $jsonFilePath = __DIR__ . '/../config/processed_emails.json'; // Replace with the actual path to your JSON file
-        $attachments = json_decode(file_get_contents($jsonFilePath), true);
+        $attachments = json_decode(file_get_contents($this->processedEmailsJson), true);
 
         // Iterate through each full filename in the array
         foreach ($fullFilenames as $fullFilename) {
@@ -1161,7 +1146,7 @@ class PopClient {
         }
 
         // Save the updated attachment information back to the JSON file
-        file_put_contents($jsonFilePath, json_encode($attachments, JSON_PRETTY_PRINT));
+        file_put_contents($this->processedEmailsJson, json_encode($attachments, JSON_PRETTY_PRINT));
     }
 }
 

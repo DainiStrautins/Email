@@ -34,7 +34,7 @@ class EmailAttachmentDownloader {
 
         foreach ($emailContent as $key => $attachment) {
             // Construct the full path to save the attachment
-            $outputPath = __DIR__ . '/../excels/';
+            $outputPath = __DIR__ . '/../../excels/';
 
             // Save the attachment and handle the result
             $result = $this->saveAttachment($attachment, $outputPath,$key);
