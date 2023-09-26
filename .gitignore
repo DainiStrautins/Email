@@ -1,0 +1,14 @@
+# Ignore all .env files
+*.env
+
+# Ignore all eml files
+*.eml
+
+# Ignore all excel files
+*.xlsx
+*.xls
+
+# Ignore specific files
+howTogetEmailBase64.php
+howToGetListOfExcelFiles.php
+howToUpdateEmails.php

@@ -1,0 +1,10 @@
+{
+  "headers_to_filter": [
+    "From",
+    "Return-Path",
+    "To",
+    "Date",
+    "Subject",
+    "Delivered-To"
+  ]
+}

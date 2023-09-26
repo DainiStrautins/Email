@@ -1,0 +1,17 @@
+{
+  "name": "vendor_name/email",
+  "description": "Email attachment and information transfer",
+  "minimum-stability": "stable",
+  "license": "proprietary",
+  "authors": [
+    {
+      "name": "Dainis",
+      "email": "strautinsdainis@gmail.com"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Email\\": "src/"
+    }
+  }
+}
