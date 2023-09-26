@@ -147,7 +147,7 @@ class PopClient {
      */
     public function setEmailHeaderFilterConfig(): void
     {
-        $emailHeaderFilterConfigPath = __DIR__ . '/config/email_header_filter_config.json';
+        $emailHeaderFilterConfigPath = __DIR__ . '/../../config/email_header_filter_config.json';
         $emailHeaderFilterConfig = file_get_contents($emailHeaderFilterConfigPath);
         $this->emailHeaderFilterConfig = json_decode($emailHeaderFilterConfig, true) ?: [];
     }
@@ -742,7 +742,7 @@ class PopClient {
     private function saveEMLFiles(array $emails): void
     {
         // Ensure the folder exists, or create it if necessary
-        $emlFolderPath = __DIR__ . '/emails/';
+        $emlFolderPath = __DIR__ . '/../../emails/';
         if (!is_dir($emlFolderPath)) {
             mkdir($emlFolderPath, 0755, true);
         }
@@ -938,7 +938,7 @@ class PopClient {
         $this->processedEmails = array_merge($this->processedEmails, $newEmailData);
 
         $jsonEmailData = json_encode($this->processedEmails, JSON_PRETTY_PRINT);
-        print_r(file_put_contents('/../../config/processed_emails.json', $jsonEmailData));
+        print_r(file_put_contents(__DIR__. '/../../config/processed_emails.json', $jsonEmailData));
     }
 
     /*function displayKeys($array, $parentKey = ''): void
@@ -1083,7 +1083,7 @@ class PopClient {
                 $originalFileName = $emailInfo['originalFileName'];
 
                 // Find the corresponding .eml file in the emails folder
-                $emlFilePath = __DIR__ . '/emails/' . $emlFileName . '.eml';
+                $emlFilePath = __DIR__ . '/../../emails/' . $emlFileName . '.eml';
 
                 if (file_exists($emlFilePath)) {
                     // Read the .eml file and extract base64 content

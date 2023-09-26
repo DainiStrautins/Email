@@ -12,6 +12,8 @@ function retrieveAndProcessEmails(): mixed
 
     echo "<pre>";
     $pop3Client = new PopClient($config);
+    $pop3Client->connect(); // Connect in the constructor
+    $pop3Client->login(); // Login in the constructor
     $pop3Client->coreEmailFunctionality();
 
     return [];

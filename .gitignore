@@ -1,5 +1,6 @@
 # Ignore all .env files
 *.env
+.idea
 
 # Ignore all eml files
 *.eml
