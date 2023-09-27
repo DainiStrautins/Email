@@ -457,9 +457,9 @@ class PopClient {
      *
      * @param array $filteredEmails An array of filtered emails to generate hashes for.
      *
-     * @return array An array containing unique hashes and their is_duplicate_header status for the filtered emails.
+     * @return void
      */
-    public function generateFilteredEmailHash(array $filteredEmails): array
+    public function generateFilteredEmailHash(array $filteredEmails): void
     {
         foreach ($filteredEmails as &$filteredEmail) {
             $processedEmail = $this->processEmail($filteredEmail);
@@ -469,8 +469,6 @@ class PopClient {
 
         // Update the globalEmails array with the processed emails
         $this->globalEmails = $filteredEmails;
-
-        return $filteredEmails;
     }
 
     /**
@@ -630,6 +628,26 @@ class PopClient {
     }
 
     /**
+     * Get the MIME type based on a file extension.
+     *
+     * This function maps commonly used file extensions to their corresponding MIME types.
+     *
+     * @param string $extension The file extension (e.g., 'xlsx', 'xls').
+     *
+     * @return string The MIME type associated with the given extension.
+     *
+     *
+     * @see https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types
+     */
+    private function getMimeTypeFromExtension(string $extension): string
+    {
+        return match ($extension) {
+            'xlsx', 'xls' => 'application/vnd.ms-excel',
+            default => 'application/octet-stream',
+        };
+    }
+
+    /**
      * Process email contents and associate attachments with each email based on its hash.
      *
      * This function also unsets all of those emails who don't have xlsx or xls attachment.
@@ -671,6 +689,9 @@ class PopClient {
                         if (in_array($extension, $allowedExtensions) && $decodedContent !== false) {
                             $attachmentHash = md5($attachmentContent);
 
+                            // Determine the MIME type based on the file extension
+                            $mime = $this->getMimeTypeFromExtension($extension);
+
                             // Check if this attachment hash already exists
                             if (in_array($attachmentHash, $existingAttachmentHashes)) {
                                 // Set is_duplicate to the hash
@@ -694,9 +715,11 @@ class PopClient {
                                 "original_file_name" => $attachmentFilename,
                                 'extension' => $extension,
                                 'status' => "Pending Approval",
+                                'size' => strlen($decodedContent),
                                 'raw_base64' => $attachmentContent,
                                 'raw' => $decodedContent,
                                 'is_duplicate' => $isDuplicateHash,
+                                'mime' => $mime,
                             ];
 
                             $hasValidAttachment = true;
@@ -909,6 +932,8 @@ class PopClient {
                         "original_file_name" => $attachmentInfo['original_file_name'],
                         "extension" => $attachmentInfo['extension'],
                         "status" => $attachmentInfo['status'],
+                        "size" => $attachmentInfo['size'],
+                        'mime' => $attachmentInfo['mime'],
                         "is_duplicate" => $attachmentInfo['is_duplicate'],
                     ];
 
@@ -982,6 +1007,10 @@ class PopClient {
         // 6. Close the connection since we do not need it anymore in this transaction.
         $this->close();
 
+        if(empty($this->globalEmails)) {
+            return;
+        }
+
         // 7. Add email bodies to the global email structure.
         $this->addBodyToGlobalEmailsStructure($emailWithBody);
 
@@ -1022,7 +1051,12 @@ class PopClient {
             // Check if there are attachments in this email
             if (isset($emailData['attachments'])) {
                 // Add the entire 'attachments' section to the attachments' array
-                $attachments[] = $emailData['attachments'];
+                $attachments[] = [
+                    'subject' => $emailData['subject'],
+                    'date' => $emailData['date'],
+                    'read_date' => $emailData['read_date'],
+                    $emailData['attachments'],
+                ];
             }
         }
 
@@ -1048,9 +1082,11 @@ class PopClient {
             // Search for the requested file name in processed emails and get the email info
             foreach ($this->processedEmails as $id => $emailData) {
                 if (isset($emailData['attachments'])) {
-                    foreach ($emailData['attachments'] as $attachmentInfo) {
+                    foreach ($emailData['attachments'] as $key => $attachmentInfo) {
                         if ($attachmentInfo['original_file_name'] === $requestedFileName ||
-                            $attachmentInfo['filename'] === $requestedFileName
+                            $attachmentInfo['filename'] === $requestedFileName ||
+                            $id === $requestedFileName ||
+                            $key === $requestedFileName
                         ) {
                             // Found the requested file name, store the email ID and original file name
                             $emailInfo = [
@@ -1062,7 +1098,6 @@ class PopClient {
                     }
                 }
             }
-
             if ($emailInfo) {
                 // Get the email ID and original file name
                 $emlFileName = $emailInfo['emailId'];
