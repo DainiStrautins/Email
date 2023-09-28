@@ -2,6 +2,9 @@
 
 namespace Email\Controller;
 
+use DateTime;
+use InvalidArgumentException;
+
 /**
  * Class Pop3Client
  *
@@ -24,8 +27,6 @@ class PopClient {
     /** @var array A property to store global email headers. */
     private array $globalEmails = [];
 
-    /** @var array A whitelist of allowed email addresses or domains. */
-    private array $whitelist = [];
 
     /** @var array Configuration options for filtering email headers. */
     private array $emailHeaderFilterConfig = [];
@@ -33,7 +34,21 @@ class PopClient {
     private array $finalizedJsonStructureArray = [];
     const CRLF = "\r\n";
 
-    private string $processedEmailsJson = __DIR__ . '/../../config/processed_emails.json';
+    private string $processedEmailsJson;
+
+    private string $configPath;
+
+    private string $dataPath;
+
+    private string $emlPath;
+
+    private string $excelPath;
+
+    private mixed $globalConfig; // Global variable to store the decoded data
+
+    private bool $connected = false; // Add a flag to track the connection status
+
+    private string $customConfigPath;
 
     /**
      * Pop3Client constructor.
@@ -42,12 +57,26 @@ class PopClient {
      *
      * Initializes the Pop3Client with configuration.
      */
-    public function __construct(array $config)
+    public function __construct(
+        array $config,
+        ?string $configPath,
+        ?string $dataPath,
+        ?string $emlPath,
+        ?string $excelPath,
+        ?string $customConfigPath
+    )
     {
         $this->config = $config;
-        $this->loadProcessedEmails(); // Load processed emails from JSON file when the Pop3Client is created
-        $this->loadWhitelist(); // Load whitelist from the config
-        $this->setEmailHeaderFilterConfig();
+        $this->getPaths($configPath, $dataPath, $emlPath, $excelPath, $customConfigPath);
+
+        $this->ensurePathsExist();
+        $this->ensureConfigExists();
+        $this->ensureProcessedEmailsFileExists();
+
+        // Load and store the config data globally
+        $this->globalConfig = $this->loadConfig();
+
+        $this->loadProcessedEmails();
     }
 
     /**
@@ -61,16 +90,36 @@ class PopClient {
     }
 
     /**
-     * Establishes a connection to the POP3 server.
+     * Establishes a secure TLS connection to the POP3 server using the configured credentials.
+     *
+     * This method checks if the configuration is using default values for the POP3 connection.
+     * If default values are detected, it sets the connection status to false and outputs a warning message.
+     * Otherwise, it attempts to create a TLS socket connection to the configured POP3 server.
      *
      * @return bool True if the connection is successful; otherwise, false.
+     *
      */
     public function connect(): bool
     {
-        $this->socket = stream_socket_client('tls://' . $this->config['hostname'] . ':' . $this->config['port'], $errno, $errstr, 60);
+        // Check if the configuration is using default values
+        if (
+            $this->globalConfig['login']['hostname'] === 'yourhost.name.com' &&
+            $this->globalConfig['login']['port'] === 995 &&
+            $this->globalConfig['login']['username'] === 'test@test.com' &&
+            $this->globalConfig['login']['password'] === 'yourPasswordToEmailServer'
+        ) {
+            $this->connected = false;
+            echo "<br>You are currently using default values, so please make sure you change those to connect to your own server";
+            // Configuration is using default values, skip the connection
+            return false;
+        }
+
+        $this->socket = stream_socket_client('tls://' . $this->globalConfig['login']['hostname'] . ':' . $this->globalConfig['login']['port'], $errno, $errstr, 60);
         if (!$this->socket) {
             die("Unable to connect to the POP3 server. Error: $errno - $errstr");
         }
+
+        $this->connected = true;
         return true;
     }
 
@@ -81,9 +130,13 @@ class PopClient {
      */
     public function login(): void
     {
-        fwrite($this->socket, "USER {$this->config['username']}". self::CRLF);
+        if (!$this->connected)
+        {
+            return;
+        }
+        fwrite($this->socket, "USER {$this->globalConfig['login']['username']}". self::CRLF);
         fgets($this->socket); // Read and discard the server's response
-        fwrite($this->socket, "PASS {$this->config['password']}". self::CRLF);
+        fwrite($this->socket, "PASS {$this->globalConfig['login']['password']}". self::CRLF);
         fgets($this->socket); // Read and discard the server's response
     }
 
@@ -122,6 +175,166 @@ class PopClient {
     }
 
     /**
+     * Loads and decodes the configuration data from the configuration file.
+     *
+     * @return array The decoded configuration data, or an empty array if the file is empty or does not exist.
+     */
+    private function loadConfig(): mixed
+    {
+        $configData = file_get_contents($this->configPath . '/mail_configurations.json');
+        return json_decode($configData, true) ?? [];
+    }
+
+    /**
+     * Sets the paths for configuration, data, email, and Excel directories.
+     *
+     * @param string|null $configPath      The path to the configuration directory.
+     * @param string|null $dataPath        The path to the data directory.
+     * @param string|null $emlPath         The path to the email directory.
+     * @param string|null $excelPath       The path to the Excel directory.
+     * @param string|null $customConfigPath The path to the custom configuration file.
+     *
+     * @return void
+     */
+    private function getPaths(
+        ?string $configPath = null,
+        ?string $dataPath = null,
+        ?string $emlPath = null,
+        ?string $excelPath = null,
+        ?string $customConfigPath = null
+    ): void {
+        $this->configPath = $configPath ?? __DIR__ . '/../../config';
+        $this->dataPath = $dataPath ?? __DIR__ . '/../../data';
+        $this->emlPath = $emlPath ?? __DIR__ . '/../../emails';
+        $this->excelPath = $excelPath ?? __DIR__ . '/../../excels';
+        $this->processedEmailsJson = $this->dataPath . '/processed_emails.json';
+        $this->customConfigPath = $customConfigPath ?? __DIR__ . '/custom_config.json';
+    }
+
+    /**
+     * Ensures that the processed_emails.json file exists. If not, it creates the file with an empty JSON array.
+     *
+     * @return void
+     */
+    private function ensureProcessedEmailsFileExists(): void
+    {
+        // Create the data directory if it doesn't exist
+        $dataDirectory = dirname($this->processedEmailsJson);
+        if (!file_exists($dataDirectory)) {
+            mkdir($dataDirectory, 0755, true);
+        }
+
+        // Create the processed_emails.json file if it doesn't exist
+        if (!file_exists($this->processedEmailsJson)) {
+            file_put_contents($this->processedEmailsJson, json_encode([], JSON_PRETTY_PRINT));
+        }
+    }
+    private function ensurePathsExist(): void
+    {
+        // Create the configuration directory if it doesn't exist
+        if (!file_exists($this->configPath)) {
+            mkdir($this->configPath, 0755, true);
+        }
+
+        // Create the data directory if it doesn't exist
+        if (!file_exists($this->dataPath)) {
+            mkdir($this->dataPath, 0755, true);
+        }
+
+        // Create the data directory if it doesn't exist
+        if (!file_exists($this->excelPath)) {
+            mkdir($this->excelPath, 0755, true);
+        }
+
+        // Create the data directory if it doesn't exist
+        if (!file_exists($this->emlPath)) {
+            mkdir($this->emlPath, 0755, true);
+        }
+        // Create the processed_emails.json file if it doesn't exist
+        if (!file_exists($this->processedEmailsJson)) {
+            file_put_contents($this->processedEmailsJson, null);
+        }
+    }
+
+    /**
+     * Ensures that the mail_configurations.json file exists and contains valid configuration data.
+     * If not, it creates or updates the file with default or custom configuration data.
+     *
+     * @return void
+     */
+    private function ensureConfigExists(): void
+    {
+        $configFile = $this->configPath . '/mail_configurations.json';
+
+        // Check if the config file exists
+        if (file_exists($configFile)) {
+            $configData = file_get_contents($configFile);
+
+            if (!empty($configData)) {
+                // Config file exists and has data
+                return;
+            }
+        }
+
+        // Check if a custom configuration file path is provided
+        if ($this->customConfigPath !== null) {
+            // Check if the custom configuration file exists
+            if (file_exists($this->customConfigPath)) {
+                // Load and decode the custom configuration
+                $customConfig = json_decode(file_get_contents($this->customConfigPath), true);
+
+                // Check if the custom configuration is empty
+                if (!empty($customConfig)) {
+                    echo "<br>Using custom configuration from '{$this->customConfigPath}'.";
+                    $config = $customConfig;
+                } else {
+                    echo "<br>Custom configuration file is empty. Using default configuration.";
+                    $config = $this->getDefaultConfig();
+                }
+            } else {
+                echo "<br>Custom configuration file isn't found. Using the default configuration.";
+                $config = $this->getDefaultConfig();
+            }
+        } else {
+            echo "<br>No custom configuration path provided. Using the default configuration.";
+            $config = $this->getDefaultConfig();
+        }
+
+        $this->close();
+
+        // Save the merged or default configuration to the config file
+        file_put_contents($configFile, json_encode($config, JSON_PRETTY_PRINT));
+    }
+
+    /**
+     * Returns the default configuration data.
+     *
+     * @return array The default configuration data.
+     */
+    private function getDefaultConfig(): array
+    {
+        return [
+            "login" => [
+                "hostname" => "yourhost.name.com",
+                "port" => 995,
+                "username" => "test@test.com",
+                "password" => "yourPasswordToEmailServer"
+            ],
+            "whitelist" => [
+                "senders" => ["test@test.com"],
+                "receivers" => ["test@test.com"]
+            ],
+            "headers_to_filter" => [
+                "From",
+                "Return-Path",
+                "To",
+                "Date",
+                "Subject",
+                "Delivered-To"
+            ]
+        ];
+    }
+    /**
      * Loads processed emails from a JSON file into the client.
      *
      * @return void
@@ -131,47 +344,7 @@ class PopClient {
         $this->processedEmails = json_decode($processedEmailsJson, true) ?: [];
     }
 
-    /**
-     * Get the configuration options for filtering email headers.
-     *
-     * @return array The configuration options for email header filtering.
-     */
-    public function getEmailHeaderFilterConfig(): array
-    {
-        return $this->emailHeaderFilterConfig;
-    }
 
-    /**
-     * Loads in email headers filter config from a JSON file into the client.
-     *
-     * @return void
-     */
-    public function setEmailHeaderFilterConfig(): void
-    {
-        $emailHeaderFilterConfigPath = __DIR__ . '/../../config/email_header_filter_config.json';
-        $emailHeaderFilterConfig = file_get_contents($emailHeaderFilterConfigPath);
-        $this->emailHeaderFilterConfig = json_decode($emailHeaderFilterConfig, true) ?: [];
-    }
-
-    /**
-     * Loads the whitelist from the json file
-     *
-     * @return void
-     */
-    private function loadWhitelist(): void
-    {
-        $this->whitelist = json_decode(file_get_contents(__DIR__ . '/../../config/allowed_emails.json'), true);
-    }
-
-    /**
-     * Gets the whitelist configuration.
-     *
-     * @return array The whitelist configuration.
-     */
-    public function getWhitelist(): array
-    {
-        return $this->whitelist;
-    }
 
     /**
      * Lists all emails on the POP3 server.
@@ -372,8 +545,8 @@ class PopClient {
         }
 
         // Convert whitelist values to lowercase for case-insensitive comparison
-        $senderInWhitelist = in_array(strtolower($sender), array_map('strtolower', $whitelist['whitelist']['senders']));
-        $receiversInWhitelist = array_intersect(array_map('strtolower', $receivers), array_map('strtolower', $whitelist['whitelist']['receivers']));
+        $senderInWhitelist = in_array(strtolower($sender), array_map('strtolower', $whitelist['senders']));
+        $receiversInWhitelist = array_intersect(array_map('strtolower', $receivers), array_map('strtolower', $whitelist['receivers']));
 
         // Check if the sender and at least one receiver are both non-empty and in the whitelist
         if ($sender && !empty($receivers) && $senderInWhitelist && !empty($receiversInWhitelist)) {
@@ -399,14 +572,12 @@ class PopClient {
 
         $filteredEmails = [];
 
-        // Access the whitelist using the getWhitelist() method
-        $whitelist = $this->getWhitelist();
 
         // Iterate through globalEmails and filter emails based on whitelist criteria
         foreach ($this->globalEmails as $email) {
             $headers = $email['header']['raw'];
             // Check if the email matches the whitelist criteria (from and to addresses)
-            if ($this->isEmailInWhitelist($headers, $whitelist)) {
+            if ($this->isEmailInWhitelist($headers, $this->globalConfig['whitelist'])) {
                 $filteredEmails[] = $email;
             }
         }
@@ -494,20 +665,15 @@ class PopClient {
      * the "Return-Path" header to ensure it contains a valid email address before
      * including it.
      *
-     * @param array $emailHeaderFilterConfig An array containing configuration for
-     *                                       filtering email headers.
      *
      * @return void
      */
-    private function filterEmailHeaders(array $emailHeaderFilterConfig): void
+    private function filterEmailHeaders(): void
     {
         // Ensure that globalEmails is not empty
         if (empty($this->globalEmails)) {
             return;
         }
-
-        // Extract headers to filter from the configuration
-        $headersToFilter = $emailHeaderFilterConfig['headers_to_filter'];
 
         // Iterate through globalEmails and filter the raw headers
         foreach ($this->globalEmails as &$email) {
@@ -526,7 +692,7 @@ class PopClient {
                             if (filter_var($headerValue, FILTER_VALIDATE_EMAIL)) {
                                 $filteredHeaders[] = $header;
                             }
-                        } elseif (in_array($headerName, $headersToFilter)) {
+                        } elseif (in_array($headerName, $this->globalConfig['headers_to_filter'])) {
                             $filteredHeaders[] = $header;
                         }
                     }
@@ -748,7 +914,8 @@ class PopClient {
         $attachmentDownloader = new EmailAttachmentDownloader;
         foreach ($this->globalEmails as $emailData) {
             if (!empty($emailData['attachments'])) {
-                $attachmentDownloader->downloadAttachments($emailData['attachments']);
+                print_r($this->excelPath);
+                $attachmentDownloader->downloadAttachments($emailData['attachments'],$this->excelPath);
             }
         }
     }
@@ -766,14 +933,13 @@ class PopClient {
     private function saveEMLFiles(array $emails): void
     {
         // Ensure the folder exists, or create it if necessary
-        $emlFolderPath = __DIR__ . '/../../emails/';
+        $emlFolderPath = rtrim($this->emlPath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
         if (!is_dir($emlFolderPath)) {
             mkdir($emlFolderPath, 0755, true);
         }
 
         // Loop through the filtered emails and save each one to its own EML file
         foreach ($emails as $id => $emailContent) {
-
             // Create the EML file name
             $emlFileName = $emlFolderPath . $id . '.eml';
 
@@ -988,6 +1154,9 @@ class PopClient {
      */
     public function coreEmailFunctionality(): void
     {
+        if (!$this->connected) {
+            return;
+        }
         // 1. Retrieve email headers for all emails.
         $filteredEmails = $this->filterDownToWhiteListEmails($this->listAllEmails());
 
@@ -999,7 +1168,7 @@ class PopClient {
         $this->deleteDuplicateEmailsFromGlobalVariable();
 
         // 4. Filter email headers to minimize header content.
-        $this->filterEmailHeaders($this->getEmailHeaderFilterConfig());
+        $this->filterEmailHeaders();
 
         // 5. Retrieve email bodies (including attachments).
         $emailWithBody = $this->retrieveEachEmailContent($this->globalEmails);
@@ -1010,7 +1179,6 @@ class PopClient {
         if(empty($this->globalEmails)) {
             return;
         }
-
         // 7. Add email bodies to the global email structure.
         $this->addBodyToGlobalEmailsStructure($emailWithBody);
 
@@ -1061,6 +1229,50 @@ class PopClient {
         }
 
         return $attachments;
+    }
+
+    /**
+     * Get attachments from emails sent in a specific year and month.
+     *
+     * This function retrieves attachments along with other fields (subject, date, read_date) from emails
+     * sent in the specified year and month.
+     *
+     * @param int $year  The year (e.g., 2023).
+     * @param int $month The month (1 to 12, e.g., 6 for June).
+     *
+     * @return array An array of email attachments that match the specified year and month.
+     *               Each element of the array includes fields: 'subject', 'date', 'read_date', 'attachments'.
+     *               If no matching emails are found, an empty array is returned.
+     *
+     * @throws InvalidArgumentException If the provided year or month is not valid.
+     *
+     * @see DateTime
+     */
+    public function getAttachmentsByYearAndMonth(int $year, int $month): array
+    {
+        $attachmentsByYearAndMonth = [];
+
+        foreach ($this->processedEmails as $emailData) {
+            // Check if the email has attachments and a valid date
+            if (isset($emailData['attachments']) && isset($emailData['date'])) {
+                $emailDate = DateTime::createFromFormat('d.m.Y H:i:s', $emailData['date']);
+
+                // Check if the date was successfully parsed and matches the specified year and month
+                if ($emailDate instanceof DateTime &&
+                    $emailDate->format('Y') === (string)$year &&
+                    $emailDate->format('n') === (string)$month
+                ) {
+                    // Include desired fields (subject, date, read_date, attachments) in the result
+                    $attachmentsByYearAndMonth[] = [
+                        'subject' => $emailData['subject'],
+                        'date' => $emailData['date'],
+                        'read_date' => $emailData['read_date'],
+                        'attachments' => $emailData['attachments'],
+                    ];
+                }
+            }
+        }
+        return $attachmentsByYearAndMonth;
     }
 
     /**

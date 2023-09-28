@@ -11,8 +11,6 @@ namespace Email\Controller;
  */
 class EmailAttachmentDownloader {
 
-    /** @var string $outputDirectory The directory where attachments are saved. */
-    private string $outputDirectory = __DIR__ . '/../excels/';
 
     /**
      * Download and save email attachments.
@@ -24,20 +22,14 @@ class EmailAttachmentDownloader {
      * @return void
      *
      */
-    public function downloadAttachments(array $emailContent): void
+    public function downloadAttachments(array $emailContent, $outputPath): void
     {
-
-        // Create the output directory if it doesn't exist
-        if (!is_dir($this->outputDirectory)) {
-            mkdir($this->outputDirectory, 0755, true);
-        }
+        // Ensure the output path ends with a directory separator
+        $outputPath = rtrim($outputPath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
 
         foreach ($emailContent as $key => $attachment) {
-            // Construct the full path to save the attachment
-            $outputPath = __DIR__ . '/../../excels/';
-
             // Save the attachment and handle the result
-            $result = $this->saveAttachment($attachment, $outputPath,$key);
+            $result = $this->saveAttachment($attachment, $outputPath, $key);
 
             if ($result === 'success') {
                 $this->log("Attachment saved: $outputPath");

@@ -10,6 +10,7 @@
 howTogetEmailBase64.php
 howToGetListOfExcelFiles.php
 howToUpdateEmails.php
+byYearMonth.php
 mail_config.json
 allowed_emails.json
 processed_emails.json

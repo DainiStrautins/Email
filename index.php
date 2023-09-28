@@ -4,19 +4,20 @@ use Email\Controller\PopClient;
 
 require 'vendor/autoload.php';
 
-
-function retrieveAndProcessEmails(): mixed
-{
-    // Load configuration from mail_config.json
-    $config = json_decode(file_get_contents(__DIR__ . '/config/mail_config.json'), true);
-
+function retrieveAndProcessEmails(
+    ?array $config,
+    ?string $configPath = null,
+    ?string $dataPath = null,
+    ?string $emlPath = null,
+    ?string $excelPath = null,
+    ?string $customConfigPath = null
+): void {
     echo "<pre>";
-    $pop3Client = new PopClient($config);
+    $pop3Client = new PopClient($config, $configPath, $dataPath, $emlPath, $excelPath, $customConfigPath);
     $pop3Client->connect(); // Connect in the constructor
     $pop3Client->login(); // Login in the constructor
     $pop3Client->coreEmailFunctionality();
-
-    return [];
-
 }
-retrieveAndProcessEmails();
+
+// Example 2: Using a custom configuration file path
+retrieveAndProcessEmails([], null, null, null, null, 'custom_config.json');
