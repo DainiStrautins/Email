@@ -28,8 +28,6 @@ class PopClient {
     private array $globalEmails = [];
 
 
-    /** @var array Configuration options for filtering email headers. */
-    private array $emailHeaderFilterConfig = [];
 
     private array $finalizedJsonStructureArray = [];
     const CRLF = "\r\n";
@@ -71,7 +69,6 @@ class PopClient {
 
         $this->ensurePathsExist();
         $this->ensureConfigExists();
-        $this->ensureProcessedEmailsFileExists();
 
         // Load and store the config data globally
         $this->globalConfig = $this->loadConfig();
@@ -211,24 +208,6 @@ class PopClient {
         $this->customConfigPath = $customConfigPath ?? __DIR__ . '/custom_config.json';
     }
 
-    /**
-     * Ensures that the processed_emails.json file exists. If not, it creates the file with an empty JSON array.
-     *
-     * @return void
-     */
-    private function ensureProcessedEmailsFileExists(): void
-    {
-        // Create the data directory if it doesn't exist
-        $dataDirectory = dirname($this->processedEmailsJson);
-        if (!file_exists($dataDirectory)) {
-            mkdir($dataDirectory, 0755, true);
-        }
-
-        // Create the processed_emails.json file if it doesn't exist
-        if (!file_exists($this->processedEmailsJson)) {
-            file_put_contents($this->processedEmailsJson, json_encode([], JSON_PRETTY_PRINT));
-        }
-    }
     private function ensurePathsExist(): void
     {
         // Create the configuration directory if it doesn't exist
@@ -253,6 +232,12 @@ class PopClient {
         // Create the processed_emails.json file if it doesn't exist
         if (!file_exists($this->processedEmailsJson)) {
             file_put_contents($this->processedEmailsJson, null);
+        }
+
+        // Create the data directory if it doesn't exist
+        $dataDirectory = dirname($this->processedEmailsJson);
+        if (!file_exists($dataDirectory)) {
+            mkdir($dataDirectory, 0755, true);
         }
     }
 
@@ -853,8 +838,7 @@ class PopClient {
                         $extension = strtolower(pathinfo($attachmentFilename, PATHINFO_EXTENSION));
 
                         if (in_array($extension, $allowedExtensions) && $decodedContent !== false) {
-                            $attachmentHash = md5($attachmentContent);
-
+                            $attachmentHash = md5($decodedContent);
                             // Determine the MIME type based on the file extension
                             $mime = $this->getMimeTypeFromExtension($extension);
 
@@ -907,14 +891,15 @@ class PopClient {
      * initiates the download process using the EmailAttachmentDownloader class.
      *
      *
+     * @param array $arrayOfEmails
+     *
      * @return void
      */
-    public function downloadEmailAttachments(): void
+    public function downloadEmailAttachments(array $arrayOfEmails): void
     {
         $attachmentDownloader = new EmailAttachmentDownloader;
-        foreach ($this->globalEmails as $emailData) {
+        foreach ($arrayOfEmails as $emailData) {
             if (!empty($emailData['attachments'])) {
-                print_r($this->excelPath);
                 $attachmentDownloader->downloadAttachments($emailData['attachments'],$this->excelPath);
             }
         }
@@ -1189,7 +1174,7 @@ class PopClient {
         $this->processEmailsWithAttachments($this->globalEmails);
 
         // 10. Download email attachments.
-        $this->downloadEmailAttachments();
+        $this->downloadEmailAttachments($this->globalEmails);
 
         // 11. Save .eml file for each email full response.
         $this->saveEMLFiles($this->globalEmails);
@@ -1289,7 +1274,7 @@ class PopClient {
     public function updateAttachmentStatusByFilenames(array $fullFilenames, string $newStatus): void
     {
         // Load the JSON file that contains attachment information
-        $attachments = json_decode(file_get_contents($this->processedEmailsJson), true);
+        $attachments = $this->processedEmails;
 
         // Iterate through each full filename in the array
         foreach ($fullFilenames as $fullFilename) {
@@ -1325,6 +1310,130 @@ class PopClient {
 
         // Save the updated attachment information back to the JSON file
         file_put_contents($this->processedEmailsJson, json_encode($attachments, JSON_PRETTY_PRINT));
+    }
+    /**
+     * Retrieves base64 content for specified Excel files.
+     *
+     * This function takes an array of requested file names and retrieves the base64 content
+     * of the specified Excel files from processed emails.
+     *
+     * @param array $fileNames An array of requested file names.
+     *
+     * @return array An array of base64 content for the requested Excel files.
+     */
+    function getExcelFilesBase64(array $fileNames): array
+    {
+        $base64Contents = [];
+        foreach ($fileNames as $requestedFileName) {
+            $base64Data = [];
+
+            if ($requestedFileName) {
+                // Get the email ID and original file name
+                $emlFileName = $requestedFileName['key'];
+
+                // Get the original file name to search in .eml file since there can be many files in attachment
+                $originalFileName = $requestedFileName['original_file_name'];
+
+                // Find the corresponding .eml file in the emails folder
+                $emlFilePath = $this->emlPath . '/' . $emlFileName . '.eml';
+
+                if (file_exists($emlFilePath)) {
+                    // Read the .eml file and extract base64 content
+                    $emlContent = file_get_contents($emlFilePath);
+
+                    // Create a pattern to match the entire base64 content
+                    $pattern = '/Content-Disposition: attachment;\s*filename="' . preg_quote($originalFileName, '/') . '".*?Content-Transfer-Encoding: base64(.*?)(?=\R--)/s';
+
+                    if (preg_match($pattern, $emlContent, $matches)) {
+                        $base64Data['key'] = $requestedFileName['key'];
+                        $base64Data['original_file_name'] = $requestedFileName['original_file_name'];
+                        $base64Data['filename'] = $requestedFileName['filename'];
+                        $base64Data['raw'] = base64_decode(trim($matches[1]));
+                    } else {
+                        // Handle if base64 content extraction fails
+                        $base64Data['key'] = $requestedFileName['key'];
+                        $base64Data['original_file_name'] = $requestedFileName['original_file_name'];
+                        $base64Data['filename'] = $requestedFileName['filename'];
+                        $base64Data['raw'] = 'Base64 content not found in email';
+                    }
+                } else {
+                    // Handle if .eml file doesn't exist
+                    $base64Data['key'] = $requestedFileName['key'];
+                    $base64Data['original_file_name'] = $requestedFileName['original_file_name'];
+                    $base64Data['filename'] = $requestedFileName['filename'];
+                    $base64Data['raw'] = 'Email file not found';
+                }
+            } else {
+                // Handle if requested file name not found in processed emails
+                $base64Data['filename'] = '';
+                $base64Data['raw'] =  'File not found in processed emails';
+            }
+
+            $base64Contents[] = $base64Data;
+        }
+
+        return $base64Contents;
+    }
+
+    /**
+     * Get original file names where Excel content doesn't match attachment keys.
+     *
+     * @param array $processedEmails An array of processed email data.
+     * @return array An array of original file names.
+     */
+    function getMismatchedOriginalFileNames(array $processedEmails): array
+    {
+        $mismatchedOriginalFileNames = [];
+
+        foreach ($processedEmails as $key => $emailData) {
+            if (isset($emailData['attachments'])) {
+                foreach ($emailData['attachments'] as $attachmentKey => $attachment) {
+                    // Generate the expected Excel content hash
+                    $expectedContentHash = $attachmentKey;
+
+                    // Generate the actual Excel file path
+                    $excelFilePath = $this->excelPath . '/' . $attachment['filename'];
+
+                    // Check if the Excel file exists
+                    if (file_exists($excelFilePath)) {
+                        // Read the Excel file and calculate the content hash of the Excel file
+                        $actualContentHash = md5(file_get_contents($excelFilePath));
+
+                        // Check if the content hashes don't match
+                        if ($expectedContentHash !== $actualContentHash) {
+                            $mismatchedOriginalFileNames[] = [
+                                "key" => $key,
+                                "original_file_name" => $attachment['original_file_name'],
+                                "filename" => $attachment['filename'],
+                            ];
+                        }
+                    } else {
+                        // If the Excel file doesn't exist, add information about it
+                        $mismatchedOriginalFileNames[] = [
+                            "key" => $key,
+                            "original_file_name" => $attachment['original_file_name'],
+                            "filename" => $attachment['filename'],
+                        ];
+                    }
+                }
+            }
+        }
+
+        return $mismatchedOriginalFileNames;
+    }
+
+    public function fixTheExcelFiles(): void {
+        // Check if there are any processed emails
+        if (empty($this->processedEmails)) {
+            return; // Do nothing if no records are found
+        }
+        $filesToOverwrite = $this->getMismatchedOriginalFileNames($this->processedEmails);
+        $base64 = $this->getExcelFilesBase64($filesToOverwrite);
+        $attachmentDownloader = new EmailAttachmentDownloader;
+
+        // Use the EmailAttachmentDownloader to overwrite the Excel files
+        $attachmentDownloader->downloadAttachments($base64,$this->excelPath, true);
+        // Set overwriting to true in case file exists
     }
 }
 

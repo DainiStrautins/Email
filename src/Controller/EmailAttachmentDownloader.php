@@ -18,18 +18,19 @@ class EmailAttachmentDownloader {
      * This method processes and saves email attachments to the specified output directory.
      *
      * @param array $emailContent An array containing attachment data.
+     * @param string $outputPath The directory where the attachments will be saved.
+     * @param bool $overwrite Whether to overwrite existing files (default is false).
      *
      * @return void
-     *
      */
-    public function downloadAttachments(array $emailContent, $outputPath): void
+    public function downloadAttachments(array $emailContent, $outputPath, ?bool $overwrite = false): void
     {
         // Ensure the output path ends with a directory separator
         $outputPath = rtrim($outputPath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
 
-        foreach ($emailContent as $key => $attachment) {
+        foreach ($emailContent as $attachment) {
             // Save the attachment and handle the result
-            $result = $this->saveAttachment($attachment, $outputPath, $key);
+            $result = $this->saveAttachment($attachment, $outputPath, $overwrite);
 
             if ($result === 'success') {
                 $this->log("Attachment saved: $outputPath");
@@ -60,24 +61,19 @@ class EmailAttachmentDownloader {
      *
      * This method saves an attachment to the specified output directory.
      *
-     * @param array $attachment       An array containing attachment data.
+     * @param array $attachment An array containing attachment data.
      * @param string $outputDirectory The directory where the attachment is saved.
-     * @param string $attachmentHash  The unique hash of the attachment.
+     * @param bool $overwrite Whether to overwrite existing files.
      *
      * @return string The result of the attachment-saving process.
-     *
      */
-    private function saveAttachment(array $attachment, string $outputDirectory, string $attachmentHash): string
+    private function saveAttachment(array $attachment, string $outputDirectory, bool $overwrite): string
     {
-        // Extract the original filename and extension
-        $originalFilename = $attachment['filename'];
-        $extension = pathinfo($originalFilename, PATHINFO_EXTENSION);
         // Construct the full path to save the attachment
-        $outputPath = $outputDirectory . DIRECTORY_SEPARATOR . $attachmentHash . '.' . $extension;
+        $outputPath = $outputDirectory . DIRECTORY_SEPARATOR . $attachment['filename'];
 
-
-        // Check if the file already exists
-        if (file_exists($outputPath)) {
+        // Check if the file already exists and $overwrite is false
+        if (!$overwrite && file_exists($outputPath)) {
             return 'exists';
         }
 
