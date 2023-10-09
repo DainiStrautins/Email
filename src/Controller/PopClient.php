@@ -864,7 +864,9 @@ class PopClient {
                                 'filename' => $filename,
                                 "original_file_name" => $attachmentFilename,
                                 'extension' => $extension,
-                                'status' => "Pending Approval",
+                                'status' => [
+                                    "duplicate" => ($isDuplicateHash === 'null') ? false : true
+                                ],
                                 'size' => strlen($decodedContent),
                                 'raw_base64' => $attachmentContent,
                                 'raw' => $decodedContent,
@@ -1266,12 +1268,12 @@ class PopClient {
      * This function updates the status of attachments in processed emails based on
      * specified filenames and new status.
      *
-     * @param array  $fullFilenames An array of full filenames (with an extension and path).
-     * @param string $newStatus     The new status to set for the attachments.
+     * @param array $fullFilenames An array of full filenames (with an extension and path).
+     * @param array $newStatus The new status to set for the attachments status.
      *
      * @return void
      */
-    public function updateAttachmentStatusByFilenames(array $fullFilenames, string $newStatus): void
+    public function updateAttachmentStatusByFilenames(array $fullFilenames, array $newStatus): void
     {
         // Load the JSON file that contains attachment information
         $attachments = $this->processedEmails;
@@ -1291,17 +1293,16 @@ class PopClient {
                     if (isset($emailData['attachments'][$partialFilename])) {
                         // Check if the extension matches the JSON record
                         if ($emailData['attachments'][$partialFilename]['extension'] === $extension) {
-                            // Check if the current status is different from the new status
-                            if ($emailData['attachments'][$partialFilename]['status'] !== $newStatus) {
-                                // Update the status of the matched attachment
-                                $attachments[$emailId]['attachments'][$partialFilename]['status'] = $newStatus;
-                                echo "Attachment status updated successfully for the filename $fullFilename." . PHP_EOL."<br>";
-                            } else {
-                                echo "Already processed for the filename $fullFilename." . PHP_EOL."<br>";
-                            }
+                            // Merge the newStatus array with the existing status array
+                            $attachments[$emailId]['attachments'][$partialFilename]['status'] = array_merge(
+                                $emailData['attachments'][$partialFilename]['status'],
+                                $newStatus
+                            );
+
+                            echo "Attachment status updated successfully for the filename $fullFilename." . PHP_EOL . "<br>";
                             break; // Stop searching after the first match is found
-                        } else{
-                            echo "Wrong attachments for $fullFilename." . PHP_EOL."<br>";
+                        } else {
+                            echo "Wrong attachments for $fullFilename." . PHP_EOL . "<br>";
                         }
                     }
                 }
@@ -1311,6 +1312,7 @@ class PopClient {
         // Save the updated attachment information back to the JSON file
         file_put_contents($this->processedEmailsJson, json_encode($attachments, JSON_PRETTY_PRINT));
     }
+
     /**
      * Retrieves base64 content for specified Excel files.
      *
