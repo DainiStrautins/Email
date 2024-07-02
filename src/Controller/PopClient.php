@@ -719,16 +719,16 @@ class PopClient {
                 }
             }
 
-            // Check if the email content has .xls or .xlsx attachments
-            $hasXlsAttachment = preg_match('/Content-Disposition:\s*attachment;\s*filename="[^"]+\.(xlsx|xls)"/i', $emailContent);
+            // Check if the email content has .xls, .xlsx, or .csv attachments
+            $hasAttachment = preg_match('/Content-Disposition:\s*attachment;\s*filename="[^"]+\.(xlsx|xls|csv)"/i', $emailContent);
 
-            if ($hasXlsAttachment) {
+            if ($hasAttachment) {
                 $nonDuplicateEmailContent[$emailNumber] = [
                     'number' => $emailNumber,
                     'content' => $emailContent,
                 ];
             } else {
-                // Unset the email if it doesn't have .xls or .xlsx attachment
+                // Unset the email if it doesn't have the specified attachments
                 unset($globalEmails[$emailIndex]);
             }
         }
@@ -818,6 +818,7 @@ class PopClient {
                 $existingAttachmentHashes = array_merge($existingAttachmentHashes, array_keys($emailData['attachments']));
             }
         }
+
         foreach ($emailContents as $emailHash => $email) {
             $emailContent = $email['body']['raw'];
             $hasValidAttachment = false;
@@ -825,62 +826,76 @@ class PopClient {
             // Extract attachments
             if (preg_match_all('/Content-Disposition:\s*attachment;\s*filename="([^"]+)"/i', $emailContent, $matches)) {
                 foreach ($matches[1] as $attachmentFilename) {
-                    $startMarker = "Content-Disposition: attachment; filename=\"$attachmentFilename\"";
-                    $startPos = strpos($emailContent, $startMarker);
-                    $endPos = strpos($emailContent, "--", $startPos);
+                    // Use multiple patterns to match different types of attachments
+                    $patterns = [
+                        "/Content-Disposition:\s*attachment;\s*filename=\"$attachmentFilename\".*?Content-Transfer-Encoding:\s*base64\s*(.*?)\r\n--/s",
+                        '/Content-Type:\s*application\/(?:vnd\.ms-excel|octet-stream);\s*name="[^"]+"\s*.*?Content-Transfer-Encoding:\s*base64\s*(.*?)\r\n--/is'
+                    ];
 
-                    if ($startPos !== false && $endPos !== false) {
-                        $attachmentContent = substr($emailContent, $startPos + strlen($startMarker), $endPos - $startPos - strlen($startMarker));
-                        $attachmentContent = trim($attachmentContent);
-                        $attachmentContent = preg_replace('/Content-Transfer-Encoding:\s*base64/i', '', $attachmentContent);
-                        $decodedContent = base64_decode($attachmentContent);
-                        $allowedExtensions = ['xlsx', 'xls'];
-                        $extension = strtolower(pathinfo($attachmentFilename, PATHINFO_EXTENSION));
+                    foreach ($patterns as $pattern) {
+                        if (preg_match($pattern, $emailContent, $contentMatches)) {
+                            $base64Content = trim($contentMatches[1]);
 
-                        if (in_array($extension, $allowedExtensions) && $decodedContent !== false) {
-                            $attachmentHash = md5($decodedContent);
-                            // Determine the MIME type based on the file extension
-                            $mime = $this->getMimeTypeFromExtension($extension);
+                            // Decode base64 content
+                            $decodedContent = base64_decode($base64Content);
 
-                            // Check if this attachment hash already exists
-                            if (in_array($attachmentHash, $existingAttachmentHashes)) {
-                                // Set is_duplicate to the hash
-                                $isDuplicateHash = $attachmentHash;
-                            } else {
-                                // Add the attachment hash to the list of existing hashes
-                                $existingAttachmentHashes[] = $attachmentHash;
-                                $isDuplicateHash = 'null';
+                            // Allowed extensions
+                            $allowedExtensions = ['xlsx', 'xls', 'csv'];
+                            $extension = strtolower(pathinfo($attachmentFilename, PATHINFO_EXTENSION));
+
+                            // Debugging extension and decoded content
+                            if (!in_array($extension, $allowedExtensions)) {
+                                echo "Attachment '$attachmentFilename' has an invalid extension '$extension'.\n";
+                            }
+                            if ($decodedContent === false) {
+                                echo "Attachment '$attachmentFilename' could not be decoded.\n";
                             }
 
-                            if (!isset($this->globalEmails[$emailHash]['attachments'])) {
-                                $this->globalEmails[$emailHash]['attachments'] = [];
+                            if (in_array($extension, $allowedExtensions) && $decodedContent !== false) {
+                                $attachmentHash = md5($base64Content);
+
+                                // Check if this attachment hash already exists
+                                if (in_array($attachmentHash, $existingAttachmentHashes)) {
+                                    // Set is_duplicate to the hash
+                                    $isDuplicateHash = $attachmentHash;
+                                } else {
+                                    // Add the attachment hash to the list of existing hashes
+                                    $existingAttachmentHashes[] = $attachmentHash;
+                                    $isDuplicateHash = 'null';
+                                }
+
+                                if (!isset($this->globalEmails[$emailHash]['attachments'])) {
+                                    $this->globalEmails[$emailHash]['attachments'] = [];
+                                }
+
+                                // Create a 'filename' based on the full attachment hash and the original extension
+                                $filename = $attachmentHash . '.' . $extension;
+
+                                // Store the filename, extension, and hash
+                                $this->globalEmails[$emailHash]['attachments'][$attachmentHash] = [
+                                    'filename' => $filename,
+                                    "original_file_name" => $attachmentFilename,
+                                    'extension' => $extension,
+                                    'status' => [
+                                        "duplicate" => ($isDuplicateHash === 'null') ? false : true
+                                    ],
+                                    'size' => strlen($decodedContent),
+                                    'raw_base64' => $base64Content,
+                                    'raw' => $decodedContent,
+                                    'is_duplicate' => $isDuplicateHash,
+                                    'mime' => $this->getMimeTypeFromExtension($extension),
+                                ];
+
+                                $hasValidAttachment = true;
                             }
-
-                            // Create a 'filename' based on the full attachment hash and the original extension
-                            $filename = $attachmentHash . '.' . $extension;
-
-                            // Store the filename, extension, and hash
-                            $this->globalEmails[$emailHash]['attachments'][$attachmentHash] = [
-                                'filename' => $filename,
-                                "original_file_name" => $attachmentFilename,
-                                'extension' => $extension,
-                                'status' => [
-                                    "duplicate" => ($isDuplicateHash === 'null') ? false : true
-                                ],
-                                'size' => strlen($decodedContent),
-                                'raw_base64' => $attachmentContent,
-                                'raw' => $decodedContent,
-                                'is_duplicate' => $isDuplicateHash,
-                                'mime' => $mime,
-                            ];
-
-                            $hasValidAttachment = true;
                         }
                     }
                 }
             }
 
+            // Only unset the email if there are no valid attachments at all
             if (!$hasValidAttachment) {
+                echo "Removing email with hash '$emailHash' because it has no valid attachments.\n";
                 unset($this->globalEmails[$emailHash]);
             }
         }
@@ -1141,11 +1156,13 @@ class PopClient {
      */
     public function coreEmailFunctionality(): void
     {
+        echo "<pre>";
         if (!$this->connected) {
             return;
         }
         // 1. Retrieve email headers for all emails.
         $filteredEmails = $this->filterDownToWhiteListEmails($this->listAllEmails());
+
 
         // 2. Generate filtered email hashes.
         $this->generateFilteredEmailHash($filteredEmails);
@@ -1166,12 +1183,13 @@ class PopClient {
         if(empty($this->globalEmails)) {
             return;
         }
+
         // 7. Add email bodies to the global email structure.
         $this->addBodyToGlobalEmailsStructure($emailWithBody);
 
         // 8. Reindex global emails by hash.
         $this->reindexGlobalEmailsByHash();
-
+        print_r($this->globalEmails);
         // 9. Process emails and prepare the structure to download and save into Json.
         $this->processEmailsWithAttachments($this->globalEmails);
 
