@@ -1156,7 +1156,6 @@ class PopClient {
      */
     public function coreEmailFunctionality(): void
     {
-        echo "<pre>";
         if (!$this->connected) {
             return;
         }
@@ -1189,7 +1188,7 @@ class PopClient {
 
         // 8. Reindex global emails by hash.
         $this->reindexGlobalEmailsByHash();
-        print_r($this->globalEmails);
+
         // 9. Process emails and prepare the structure to download and save into Json.
         $this->processEmailsWithAttachments($this->globalEmails);
 
