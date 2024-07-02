@@ -843,10 +843,6 @@ class PopClient {
                             $allowedExtensions = ['xlsx', 'xls', 'csv'];
                             $extension = strtolower(pathinfo($attachmentFilename, PATHINFO_EXTENSION));
 
-                            // Debugging extension and decoded content
-                            if (!in_array($extension, $allowedExtensions)) {
-                                echo "Attachment '$attachmentFilename' has an invalid extension '$extension'.\n";
-                            }
                             if ($decodedContent === false) {
                                 echo "Attachment '$attachmentFilename' could not be decoded.\n";
                             }
@@ -1303,23 +1299,22 @@ class PopClient {
             $extension = pathinfo($fullFilename, PATHINFO_EXTENSION);
 
             // Iterate through each email in the JSON
-            foreach ($this->processedEmails as $emailId => $emailData) {
+            foreach ($attachments as $emailId => $emailData) {
                 // Check if the email has attachments
                 if (isset($emailData['attachments'])) {
                     // Check if the partial filename exists in the attachments
                     if (isset($emailData['attachments'][$partialFilename])) {
                         // Check if the extension matches the JSON record
                         if ($emailData['attachments'][$partialFilename]['extension'] === $extension) {
-                            // Merge the newStatus array with the existing status array
+                            // Update the status directly
                             $attachments[$emailId]['attachments'][$partialFilename]['status'] = array_merge(
                                 $emailData['attachments'][$partialFilename]['status'],
                                 $newStatus
                             );
 
-                            echo "Attachment status updated successfully for the filename $fullFilename." . PHP_EOL . "<br>";
                             break; // Stop searching after the first match is found
                         } else {
-                            echo "Wrong attachments for $fullFilename." . PHP_EOL . "<br>";
+                            error_log( "Wrong attachments for $fullFilename." . PHP_EOL . "<br>");
                         }
                     }
                 }

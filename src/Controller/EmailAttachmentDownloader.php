@@ -23,7 +23,7 @@ class EmailAttachmentDownloader {
      *
      * @return void
      */
-    public function downloadAttachments(array $emailContent, $outputPath, ?bool $overwrite = false): void
+    public function downloadAttachments(array $emailContent, string $outputPath, ?bool $overwrite = false): void
     {
         // Ensure the output path ends with a directory separator
         $outputPath = rtrim($outputPath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR;
@@ -32,9 +32,7 @@ class EmailAttachmentDownloader {
             // Save the attachment and handle the result
             $result = $this->saveAttachment($attachment, $outputPath, $overwrite);
 
-            if ($result === 'success') {
-                $this->log("Attachment saved: $outputPath");
-            } elseif ($result === 'failure') {
+          if ($result === 'failure') {
                 $this->log("Error saving attachment: $outputPath");
             } elseif ($result === 'exists') {
                 $this->log("Attachment already exists: $outputPath");
